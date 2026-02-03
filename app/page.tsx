@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useRef, useEffect, KeyboardEvent, useCallback } from 'react';
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown, { Components } from 'react-markdown';
+import { ERA_SUGGESTIONS } from '../lib/suggestions';
 
 type Era = 'Anniversary' | 'Classic' | 'TBC' | 'WotLK' | 'Retail';
 
@@ -19,12 +20,6 @@ interface SavedChat {
   timestamp: number;
 }
 
-const SUGGESTIONS = [
-  "Best pre-raid gear for mage?",
-  "Onyxia attunement guide",
-  "How to farm gold in Winterspring?",
-  "BIS trinkets for fury warrior",
-];
 
 const STORAGE_KEY = 'wow-oracle-chats';
 const MAX_SAVED_CHATS = 10;
@@ -41,6 +36,8 @@ export default function Home() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const historyRef = useRef<HTMLDivElement>(null);
+  const [suggestedReplies, setSuggestedReplies] = useState<string[]>([]);
+  const [initialSuggestions, setInitialSuggestions] = useState<string[]>([]);
 
   const eras: Era[] = ['Anniversary', 'Classic', 'TBC', 'WotLK', 'Retail'];
 
@@ -60,6 +57,19 @@ export default function Home() {
       }
     }
   }, []);
+
+  // Get random suggestions for an era
+  const getRandomSuggestions = useCallback((era: Era) => {
+    const list = ERA_SUGGESTIONS[era] || ERA_SUGGESTIONS['Anniversary'];
+    // Shuffle and pick 4
+    const shuffled = [...list].sort(() => 0.5 - Math.random());
+    return shuffled.slice(0, 4);
+  }, []);
+
+  // Update suggestions when era changes
+  useEffect(() => {
+    setInitialSuggestions(getRandomSuggestions(selectedEra));
+  }, [selectedEra, getRandomSuggestions]);
 
   // Save current chat when messages change
   const saveCurrentChat = useCallback(() => {
@@ -115,7 +125,7 @@ export default function Home() {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages.length, isTyping]);
+  }, [messages.length]);
 
   // Refresh Wowhead tooltips when messages change
   useEffect(() => {
@@ -147,6 +157,7 @@ export default function Home() {
     const updatedMessages = [...messages, userMessage];
     setMessages(updatedMessages);
     setInput('');
+    setSuggestedReplies([]);
     setIsTyping(true);
     setError(null);
 
@@ -199,11 +210,34 @@ export default function Home() {
           const chunk = decoder.decode(value, { stream: true });
           accumulatedContent += chunk;
 
-          setMessages(prev => prev.map(msg =>
-            msg.id === oracleMessageId
-              ? { ...msg, content: accumulatedContent }
-              : msg
-          ));
+          if (accumulatedContent.includes('---SUGGESTIONS---')) {
+            const [mainContent, suggestionsJson] = accumulatedContent.split('---SUGGESTIONS---');
+
+            // Update message content without the JSON block
+            setMessages(prev => prev.map(msg =>
+              msg.id === oracleMessageId
+                ? { ...msg, content: mainContent.trim() }
+                : msg
+            ));
+
+            try {
+              if (suggestionsJson && suggestionsJson.trim()) {
+                const parsedSuggestions = JSON.parse(suggestionsJson.trim());
+                if (Array.isArray(parsedSuggestions)) {
+                  setSuggestedReplies(parsedSuggestions);
+                }
+              }
+            } catch (e) {
+              // Silently fail if JSON is incomplete or invalid during streaming
+            }
+          } else {
+            // Normal streaming update
+            setMessages(prev => prev.map(msg =>
+              msg.id === oracleMessageId
+                ? { ...msg, content: accumulatedContent }
+                : msg
+            ));
+          }
         }
       }
 
@@ -240,6 +274,7 @@ export default function Home() {
 
   const startNewChat = () => {
     setMessages([]);
+    setSuggestedReplies([]);
     setCurrentChatId(null);
     setShowHistory(false);
   };
@@ -260,6 +295,7 @@ export default function Home() {
 
   const loadChat = (chat: SavedChat) => {
     setMessages(chat.messages);
+    setSuggestedReplies([]);
     setSelectedEra(chat.era);
     setCurrentChatId(chat.id);
     setShowHistory(false);
@@ -445,7 +481,7 @@ export default function Home() {
                 Let's chat about it!
               </p>
               <div className="welcome-suggestions">
-                {SUGGESTIONS.map((suggestion, i) => (
+                {initialSuggestions.map((suggestion, i) => (
                   <button
                     key={i}
                     className="suggestion-chip"
@@ -465,7 +501,25 @@ export default function Home() {
                 >
                   {msg.role === 'oracle' ? (
                     <div className="markdown-content">
-                      <ReactMarkdown>{msg.content}</ReactMarkdown>
+                      <ReactMarkdown
+                        components={{
+                          a: ({ href, children, ...props }: any) => {
+                            return (
+                              <a
+                                href={href}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-blue-400 hover:text-blue-300 underline cursor-pointer"
+                                {...props}
+                              >
+                                {children}
+                              </a>
+                            );
+                          }
+                        }}
+                      >
+                        {msg.content}
+                      </ReactMarkdown>
                     </div>
                   ) : (
                     msg.content
@@ -479,6 +533,8 @@ export default function Home() {
                   <span className="typing-dot" />
                 </div>
               )}
+              {/* Spacer to push content up */}
+              <div style={{ height: '20vh' }} />
               <div ref={messagesEndRef} />
             </div>
           )}
@@ -490,19 +546,33 @@ export default function Home() {
             </div>
           )}
 
-          {/* Input Area */}
           <div className="input-area">
             <div className="input-wrapper">
-              <textarea
-                ref={textareaRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Ask the Oracle..."
-                className="chat-input"
-                rows={1}
-                spellCheck={false}
-              />
+              <div className="input-content-col">
+                {suggestedReplies.length > 0 && (
+                  <div className="suggested-replies">
+                    {suggestedReplies.map((reply, index) => (
+                      <button
+                        key={index}
+                        className="suggestion-chip"
+                        onClick={() => handleSuggestionClick(reply)}
+                      >
+                        {reply}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <textarea
+                  ref={textareaRef}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Ask the Oracle..."
+                  className="chat-input"
+                  rows={1}
+                  spellCheck={false}
+                />
+              </div>
               <button
                 className="send-btn"
                 onClick={handleSend}
@@ -517,6 +587,8 @@ export default function Home() {
           </div>
         </div>
       </div>
+
+
     </>
   );
 }
