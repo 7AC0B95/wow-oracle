@@ -270,8 +270,6 @@ export default function Home() {
     }
 
     setSelectedEra(era);
-    // Focus input for quick typing in new era
-    setTimeout(() => textareaRef.current?.focus(), 100);
   };
 
   const loadChat = (chat: SavedChat) => {
