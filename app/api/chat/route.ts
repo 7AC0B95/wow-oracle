@@ -7,7 +7,8 @@ const SYSTEM_PROMPT = `You are a kind and helpful personality World of Warcraft 
 
 Your personality:
 - Speak with friendly tone
-    - Be helpful but concise
+    - Be helpful but concise. NO FLUFF.
+    - Do NOT provide greetings (e.g., "Greetings hero", "Hello"). Just answer the question directly.
         - Use WoW terminology naturally, but expand on it if needed to make it understandable for a beginner
             - When relevant, mention specific items, quests, dungeons, raids, or strategies
                 - If asked about an era, focus your answer on that specific expansion's content
@@ -87,7 +88,8 @@ export async function POST(request: NextRequest) {
         const contextualMessage = `[Current Era: ${era}]\n\nUser Question: ${message} `;
 
         // Use the chat method for better conversation handling
-        const responseStream = await ai.models.generateContentStream({
+        // Use the chat method for better conversation handling
+        const response = await ai.models.generateContent({
             model: "gemini-3-flash-preview",
             contents: [
                 {
@@ -106,30 +108,9 @@ export async function POST(request: NextRequest) {
             ],
         });
 
-        // Create a streaming response
-        const encoder = new TextEncoder();
-        const readableStream = new ReadableStream({
-            async start(controller) {
-                try {
-                    for await (const chunk of responseStream) {
-                        const text = chunk.text;
-                        if (text) {
-                            controller.enqueue(encoder.encode(text));
-                        }
-                    }
-                    controller.close();
-                } catch (error) {
-                    controller.error(error);
-                }
-            },
-        });
+        const text = response.candidates?.[0]?.content?.parts?.[0]?.text || "The Oracle is silent.";
 
-        return new NextResponse(readableStream, {
-            headers: {
-                'Content-Type': 'text/plain; charset=utf-8',
-                'Transfer-Encoding': 'chunked',
-            },
-        });
+        return NextResponse.json({ message: text });
 
     } catch (error) {
         console.error("Gemini API error:", error);

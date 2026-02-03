@@ -36,6 +36,7 @@ export default function Home() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const historyRef = useRef<HTMLDivElement>(null);
+  const shouldScrollRef = useRef(false);
   const [suggestedReplies, setSuggestedReplies] = useState<string[]>([]);
   const [initialSuggestions, setInitialSuggestions] = useState<string[]>([]);
 
@@ -124,8 +125,11 @@ export default function Home() {
   };
 
   useEffect(() => {
-    scrollToBottom();
-  }, [messages.length]);
+    if (shouldScrollRef.current) {
+      scrollToBottom();
+      shouldScrollRef.current = false;
+    }
+  }, [messages]);
 
   // Refresh Wowhead tooltips when messages change
   useEffect(() => {
@@ -155,6 +159,7 @@ export default function Home() {
     };
 
     const updatedMessages = [...messages, userMessage];
+    shouldScrollRef.current = true;
     setMessages(updatedMessages);
     setInput('');
     setSuggestedReplies([]);
@@ -192,54 +197,30 @@ export default function Home() {
         throw new Error(data.error || 'Failed to get response');
       }
 
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error('No reader available');
+      const data = await response.json();
+      const rawContent = data.message || '';
+      let finalContent = rawContent;
 
-      // Add the empty oracle message to start
-      setMessages(prev => [...prev, oracleMessage]);
+      // Parse suggestions
+      if (rawContent.includes('---SUGGESTIONS---')) {
+        const [mainContent, suggestionsJson] = rawContent.split('---SUGGESTIONS---');
+        finalContent = mainContent.trim();
 
-      const decoder = new TextDecoder();
-      let done = false;
-      let accumulatedContent = '';
-
-      while (!done) {
-        const { value, done: doneReading } = await reader.read();
-        done = doneReading;
-
-        if (value) {
-          const chunk = decoder.decode(value, { stream: true });
-          accumulatedContent += chunk;
-
-          if (accumulatedContent.includes('---SUGGESTIONS---')) {
-            const [mainContent, suggestionsJson] = accumulatedContent.split('---SUGGESTIONS---');
-
-            // Update message content without the JSON block
-            setMessages(prev => prev.map(msg =>
-              msg.id === oracleMessageId
-                ? { ...msg, content: mainContent.trim() }
-                : msg
-            ));
-
-            try {
-              if (suggestionsJson && suggestionsJson.trim()) {
-                const parsedSuggestions = JSON.parse(suggestionsJson.trim());
-                if (Array.isArray(parsedSuggestions)) {
-                  setSuggestedReplies(parsedSuggestions);
-                }
-              }
-            } catch (e) {
-              // Silently fail if JSON is incomplete or invalid during streaming
+        try {
+          if (suggestionsJson && suggestionsJson.trim()) {
+            const parsedSuggestions = JSON.parse(suggestionsJson.trim());
+            if (Array.isArray(parsedSuggestions)) {
+              console.log('Suggestions found:', parsedSuggestions); // Debug log
+              setSuggestedReplies(parsedSuggestions);
             }
-          } else {
-            // Normal streaming update
-            setMessages(prev => prev.map(msg =>
-              msg.id === oracleMessageId
-                ? { ...msg, content: accumulatedContent }
-                : msg
-            ));
           }
+        } catch (e) {
+          // Ignore JSON parse errors
         }
       }
+
+      // Add the completed message
+      setMessages(prev => [...prev, { ...oracleMessage, content: finalContent }]);
 
     } catch (err) {
       console.error('Chat error:', err);
@@ -294,6 +275,7 @@ export default function Home() {
   };
 
   const loadChat = (chat: SavedChat) => {
+    shouldScrollRef.current = true;
     setMessages(chat.messages);
     setSuggestedReplies([]);
     setSelectedEra(chat.era);
