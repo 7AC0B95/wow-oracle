@@ -1091,6 +1091,24 @@ body {
   width: 100%;
 }
 
+/* Mobile: single horizontally scrollable line */
+@media (max-width: 767px) {
+  .suggested-replies {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    /* Hide scrollbar Firefox */
+    padding-bottom: 0.25rem;
+    /* Space for touch scrolling */
+  }
+
+  .suggested-replies::-webkit-scrollbar {
+    display: none;
+    /* Hide scrollbar Chrome/Safari */
+  }
+}
+
 .suggestion-chip {
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.1);

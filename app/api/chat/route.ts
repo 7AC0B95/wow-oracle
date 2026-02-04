@@ -47,12 +47,12 @@ Always provide accurate, helpful information about:
 
 If you don't know something specific, admit it and make it clear rather than making up information.
 
-At the very end of your response, you MUST provide 3 short, relevant follow - up questions or suggestions for the user to ask next.
-Format these strictly as a JSON block separated by a delimiter "---SUGGESTIONS---".
+At the very end of your response, you MUST provide 3 short, relevant follow-up questions or suggestions for the user to ask next.
+Format these strictly as a JSON array separated by the delimiter "---SUGGESTIONS---".
     Example:
 [Your normal response here...]
---- SUGGESTIONS-- -
-    ["Where can I farm that?", "What stats should I prioritize?", "Show me the talent build"]
+---SUGGESTIONS---
+["Where can I farm that?", "What stats should I prioritize?", "Show me the talent build"]
         `;
 
 export async function POST(request: NextRequest) {
@@ -107,14 +107,37 @@ export async function POST(request: NextRequest) {
 
         let text = response.candidates?.[0]?.content?.parts?.[0]?.text || "The Oracle is silent.";
 
+        // --- Suggestions Parsing ---
+        let suggestions: string[] = [];
+        const suggestionMarker = "---SUGGESTIONS---";
+
+        // Find the marker and everything after it
+        const suggestionIndex = text.indexOf(suggestionMarker);
+        if (suggestionIndex !== -1) {
+            const suggestionsPart = text.substring(suggestionIndex + suggestionMarker.length).trim();
+            // Remove the suggestions block from the main text
+            text = text.substring(0, suggestionIndex).trim();
+
+            try {
+                // Look for JSON array pattern [ ... ]
+                const jsonMatch = suggestionsPart.match(/\[[\s\S]*\]/);
+                if (jsonMatch) {
+                    const parsed = JSON.parse(jsonMatch[0]);
+                    if (Array.isArray(parsed)) {
+                        suggestions = parsed.filter(s => typeof s === 'string');
+                    }
+                }
+            } catch (e) {
+                console.error("Failed to parse suggestions JSON:", e);
+            }
+        }
+
         // --- Dynamic Link Resolution ---
-        // 1. Find all matches ({{Item Name}})
+        // (Link resolution should happen on the cleaned text to avoid resolving items inside suggestions JSON)
         const regex = /\{\{(.*?)\}\}/g;
         const matches = [...text.matchAll(regex)];
 
         if (matches.length > 0) {
-            // 2. Resolve them all in parallel
-            // We use a Map to handle duplicates efficiently
             const uniqueNames = new Set(matches.map(m => m[1]));
             const resolutions = new Map<string, string>();
 
@@ -125,16 +148,17 @@ export async function POST(request: NextRequest) {
                 })
             );
 
-            // 3. Replace in text
             text = text.replace(regex, (match, itemName) => {
                 const url = resolutions.get(itemName) || `https://www.wowhead.com/search?q=${encodeURIComponent(itemName)}`;
-                // Hide the type prefix (e.g., "spell:Shadow Mastery" -> "Shadow Mastery")
                 const displayName = itemName.includes(':') ? itemName.split(':').slice(1).join(':').trim() : itemName;
                 return `[${displayName}](${url})`;
             });
         }
 
-        return NextResponse.json({ message: text });
+        return NextResponse.json({
+            message: text,
+            suggestions: suggestions
+        });
 
     } catch (error) {
         console.error("Gemini API error:", error);

@@ -213,25 +213,12 @@ export default function Home() {
       }
 
       const data = await response.json();
-      const rawContent = data.message || '';
-      let finalContent = rawContent;
+      const finalContent = data.message || 'The Oracle is silent.';
+      const suggestions = data.suggestions || [];
 
-      // Parse suggestions
-      if (rawContent.includes('---SUGGESTIONS---')) {
-        const [mainContent, suggestionsJson] = rawContent.split('---SUGGESTIONS---');
-        finalContent = mainContent.trim();
-
-        try {
-          if (suggestionsJson && suggestionsJson.trim()) {
-            const parsedSuggestions = JSON.parse(suggestionsJson.trim());
-            if (Array.isArray(parsedSuggestions)) {
-              console.log('Suggestions found:', parsedSuggestions); // Debug log
-              setSuggestedReplies(parsedSuggestions);
-            }
-          }
-        } catch (e) {
-          // Ignore JSON parse errors
-        }
+      if (suggestions.length > 0) {
+        console.log('Suggestions received from API:', suggestions);
+        setSuggestedReplies(suggestions);
       }
 
       // Add the completed message
