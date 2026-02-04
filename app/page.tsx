@@ -24,6 +24,7 @@ interface SavedChat {
 
 
 const STORAGE_KEY = 'wow-oracle-chats';
+const ERA_STORAGE_KEY = 'wow-oracle-selected-era';
 const MAX_SAVED_CHATS = 10;
 
 export default function Home() {
@@ -49,7 +50,7 @@ export default function Home() {
     document.body.setAttribute('data-theme', selectedEra);
   }, [selectedEra]);
 
-  // Load saved chats from localStorage
+  // Load saved chats and era preference from localStorage
   useEffect(() => {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
@@ -59,7 +60,18 @@ export default function Home() {
         console.error('Failed to load saved chats');
       }
     }
+
+    // Load saved era preference
+    const savedEra = localStorage.getItem(ERA_STORAGE_KEY);
+    if (savedEra && eras.includes(savedEra as Era)) {
+      setSelectedEra(savedEra as Era);
+    }
   }, []);
+
+  // Save era preference when it changes
+  useEffect(() => {
+    localStorage.setItem(ERA_STORAGE_KEY, selectedEra);
+  }, [selectedEra]);
 
   // Get random suggestions for an era
   const getRandomSuggestions = useCallback((era: Era) => {
