@@ -10,6 +10,8 @@ interface Message {
   id: string;
   role: 'user' | 'oracle';
   content: string;
+  verificationStatus?: 'idle' | 'verifying' | 'verified' | 'error';
+  verificationResult?: string;
 }
 
 interface SavedChat {
@@ -132,13 +134,26 @@ export default function Home() {
   }, [messages]);
 
   // Refresh Wowhead tooltips when messages change
+  // Refresh Wowhead tooltips when messages change
   useEffect(() => {
-    const timer = setTimeout(() => {
+    // Immediate check
+    const refresh = () => {
       if (typeof window !== 'undefined' && (window as unknown as { $WowheadPower?: { refreshLinks: () => void } }).$WowheadPower) {
         (window as unknown as { $WowheadPower: { refreshLinks: () => void } }).$WowheadPower.refreshLinks();
+        console.log('Wowhead tooltips refreshed');
       }
-    }, 100);
-    return () => clearTimeout(timer);
+    };
+
+    // Staggered refresh to ensure script catches up
+    const t1 = setTimeout(refresh, 100);
+    const t2 = setTimeout(refresh, 500);
+    const t3 = setTimeout(refresh, 1500);
+
+    return () => {
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+    };
   }, [messages]);
 
   // Auto-resize textarea
@@ -293,6 +308,42 @@ export default function Home() {
     }
   };
 
+  const handleVerify = async (messageId: string, content: string) => {
+    // Set verifying status
+    setMessages(prev => prev.map(msg =>
+      msg.id === messageId
+        ? { ...msg, verificationStatus: 'verifying' }
+        : msg
+    ));
+
+    try {
+      const response = await fetch('/api/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: content, era: selectedEra }),
+      });
+
+      if (!response.ok) throw new Error('Verification failed');
+      const data = await response.json();
+
+      setMessages(prev => prev.map(msg =>
+        msg.id === messageId
+          ? {
+            ...msg,
+            verificationStatus: 'verified',
+            verificationResult: data.verification
+          }
+          : msg
+      ));
+    } catch (err) {
+      setMessages(prev => prev.map(msg =>
+        msg.id === messageId
+          ? { ...msg, verificationStatus: 'error' }
+          : msg
+      ));
+    }
+  };
+
   const formatTimestamp = (ts: number) => {
     const now = Date.now();
     const diff = now - ts;
@@ -309,6 +360,9 @@ export default function Home() {
         <div className="ambient-orb ambient-orb-1" />
         <div className="ambient-orb ambient-orb-2" />
       </div>
+
+
+
 
       {/* App Layout */}
       <div className="app-layout">
@@ -351,6 +405,7 @@ export default function Home() {
                   <div
                     key={chat.id}
                     className={`history-item-sm ${currentChatId === chat.id ? 'active' : ''}`}
+                    data-era={chat.era}
                     onClick={() => loadChat(chat)}
                   >
                     <div className="history-item-content-sm">
@@ -380,6 +435,8 @@ export default function Home() {
               <h1 className="oracle-title">Oracle</h1>
               <p className="oracle-subtitle">World of Warcraft Knowledge Base</p>
             </div>
+
+
 
             {/* Era Selector Row */}
             <div className="era-row">
@@ -427,6 +484,7 @@ export default function Home() {
                           <div
                             key={chat.id}
                             className={`history-item ${currentChatId === chat.id ? 'active' : ''}`}
+                            data-era={chat.era}
                             onClick={() => loadChat(chat)}
                           >
                             <div className="history-item-content">
@@ -500,6 +558,27 @@ export default function Home() {
                       >
                         {msg.content}
                       </ReactMarkdown>
+
+                      {/* Verification UI */}
+                      <div className="verification-section">
+                        {!msg.verificationStatus || msg.verificationStatus === 'idle' ? (
+                          <button
+                            className="verify-btn"
+                            onClick={() => handleVerify(msg.id, msg.content)}
+                          >
+                            🛡️ Verify Accuracy
+                          </button>
+                        ) : msg.verificationStatus === 'verifying' ? (
+                          <span className="verifying-status">Scanning scrolls... 🔮</span>
+                        ) : msg.verificationStatus === 'error' ? (
+                          <span className="error-status">Verification failed.</span>
+                        ) : (
+                          <div className="verification-result">
+                            <div className="verification-header">🛡️ Oracle Verification Protocol</div>
+                            <ReactMarkdown>{msg.verificationResult || ''}</ReactMarkdown>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   ) : (
                     msg.content

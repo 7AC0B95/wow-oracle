@@ -1,6 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { NextRequest, NextResponse } from "next/server";
-
+import { resolveWowheadLink } from "@/lib/wowhead";
 
 
 const SYSTEM_PROMPT = `You are a kind and helpful personality World of Warcraft expert assistant.You have deep knowledge of all WoW versions: Anniversary TBC pre - patch realms, Classic(Vanilla), The Burning Crusade(TBC), Wrath of the Lich King(WotLK), and Retail.
@@ -13,19 +13,17 @@ Your personality:
             - When relevant, mention specific items, quests, dungeons, raids, or strategies
                 - If asked about an era, focus your answer on that specific expansion's content
 
-IMPORTANT - Wowhead Links:
-When mentioning items, spells, quests, or other WoW database entries, ALWAYS format them as Wowhead links using this pattern:
-- For items: [Item Name](https://www.wowhead.com/classic/item=ITEM_ID) for Classic/Anniversary, or [Item Name](https://www.wowhead.com/item=ITEM_ID) for Retail
-    - For spells: [Spell Name](https://www.wowhead.com/classic/spell=SPELL_ID) or [Spell Name](https://www.wowhead.com/spell=SPELL_ID)
-        - For quests: [Quest Name](https://www.wowhead.com/classic/quest=QUEST_ID) or [Quest Name](https://www.wowhead.com/quest=QUEST_ID)
-            - For NPCs: [NPC Name](https://www.wowhead.com/classic/npc=NPC_ID) or [NPC Name](https://www.wowhead.com/npc=NPC_ID)
+IMPORTANT - Item Linking:
+When mentioning items, spells, quests, or NPCs, do NOT create the Markdown link yourself.
+Instead, simply wrap the exact name in double curly braces.
+If there's ambiguity (e.g., a talent and an item share a name), you can provide a hint like:
+- {{spell:Shadow Mastery}} for the talent
+- {{item:The Unstoppable Force}} for the weapon
+- {{quest:The Missing Diplomat}} for a quest
+- {{npc:Thrall}} for an NPC
 
-                Use the appropriate subdomain based on the era:
-                - Anniversary: wowhead.com / classic / (uses Classic database, but with TBC spell / talent IDs where applicable)
-- Classic / Vanilla: wowhead.com / classic /
-    - TBC: wowhead.com / tbc /
-        - WotLK: wowhead.com / wotlk /
-            - Retail: wowhead.com /
+Supported hints: item, spell, quest, npc, object, achievement.
+The system will automatically convert these into correct Wowhead links for you.
 
                 CRITICAL - Item Categorization & Accuracy:
 You have a high error rate with item slots.You MUST correct this.
@@ -88,7 +86,6 @@ export async function POST(request: NextRequest) {
         const contextualMessage = `[Current Era: ${era}]\n\nUser Question: ${message} `;
 
         // Use the chat method for better conversation handling
-        // Use the chat method for better conversation handling
         const response = await ai.models.generateContent({
             model: "gemini-3-flash-preview",
             contents: [
@@ -108,7 +105,34 @@ export async function POST(request: NextRequest) {
             ],
         });
 
-        const text = response.candidates?.[0]?.content?.parts?.[0]?.text || "The Oracle is silent.";
+        let text = response.candidates?.[0]?.content?.parts?.[0]?.text || "The Oracle is silent.";
+
+        // --- Dynamic Link Resolution ---
+        // 1. Find all matches ({{Item Name}})
+        const regex = /\{\{(.*?)\}\}/g;
+        const matches = [...text.matchAll(regex)];
+
+        if (matches.length > 0) {
+            // 2. Resolve them all in parallel
+            // We use a Map to handle duplicates efficiently
+            const uniqueNames = new Set(matches.map(m => m[1]));
+            const resolutions = new Map<string, string>();
+
+            await Promise.all(
+                Array.from(uniqueNames).map(async (name) => {
+                    const url = await resolveWowheadLink(name, era);
+                    resolutions.set(name, url);
+                })
+            );
+
+            // 3. Replace in text
+            text = text.replace(regex, (match, itemName) => {
+                const url = resolutions.get(itemName) || `https://www.wowhead.com/search?q=${encodeURIComponent(itemName)}`;
+                // Hide the type prefix (e.g., "spell:Shadow Mastery" -> "Shadow Mastery")
+                const displayName = itemName.includes(':') ? itemName.split(':').slice(1).join(':').trim() : itemName;
+                return `[${displayName}](${url})`;
+            });
+        }
 
         return NextResponse.json({ message: text });
 
